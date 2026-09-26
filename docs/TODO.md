@@ -7,6 +7,9 @@
 
 ## Management follow-ups
 
+- Preserve identity and provenance when regrouping menu-based add-only schemas;
+  the current move re-enters add-only naming and can replace the source file with
+  a renamed record that does not inherit its evidence.
 - Decide explicit confirmation and host-level authorization for permanent GC, import and
   cross-store changes; CLI labels alone do not identify a human.
 - Decide preimage retention and recovery guarantees for split and in-place correction,
