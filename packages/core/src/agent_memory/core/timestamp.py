@@ -41,6 +41,6 @@ def days_between(later: dt.datetime, earlier: dt.datetime) -> float:
 def is_valid(value: str) -> bool:
     try:
         parse(value)
-    except ValueError:
+    except (ValueError, OverflowError):
         return False
     return True

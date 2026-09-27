@@ -142,15 +142,15 @@ class Store:
         if not specs:
             return BatchResult(written=written, rejected=rejected)
         with store_lock(self.layout):
-            for index, spec in enumerate(specs):
-                try:
-                    record, changed = self._write_one(_known_fields(spec))
-                    written.append(record)
-                    for path, original in changed.items():
-                        snapshots.setdefault(path, original)
-                except ValidationError as error:
-                    rejected.append(Rejected(index=index, errors=list(error.errors)))
             try:
+                for index, spec in enumerate(specs):
+                    try:
+                        record, changed = self._write_one(_known_fields(spec))
+                        written.append(record)
+                        for path, original in changed.items():
+                            snapshots.setdefault(path, original)
+                    except ValidationError as error:
+                        rejected.append(Rejected(index=index, errors=list(error.errors)))
                 self._project()
             except Exception:
                 self._restore_files(snapshots)
@@ -168,6 +168,10 @@ class Store:
             raise ValidationError([FieldError("abstract", "required")])
         now = self.clock.timestamp()
         valid_from = str(spec.get("valid_from") or "") or None
+        if valid_from and not timestamp.is_valid(valid_from):
+            raise ValidationError(
+                [FieldError("valid_from", "must be an ISO 8601 day or zone-aware instant")]
+            )
         placed = placement.resolve(
             schema,
             _as_mapping(spec.get("fields")),
@@ -208,6 +212,10 @@ class Store:
             )
 
         weight = spec.get("weight")
+        try:
+            parsed_weight = float(str(weight)) if weight is not None else self.config.weight.initial
+        except ValueError as error:
+            raise ValidationError([FieldError("weight", "must be a number")]) from error
         candidate = MemoryRecord(
             name=placed.name,
             abstract=str(spec.get("abstract") or "").strip(),
@@ -217,7 +225,7 @@ class Store:
             updated=now,
             body=str(spec.get("body") or ""),
             valid_from=valid_from or (existing.valid_from if existing else now),
-            weight=float(str(weight)) if weight is not None else self.config.weight.initial,
+            weight=parsed_weight,
             links=[str(link) for link in _as_sequence(spec.get("links"))],
             provenance=list(existing.provenance) if existing else [],
             fields=dict(placed.fields),
@@ -609,7 +617,9 @@ class Store:
         return None
 
 
-def _known_fields(spec: dict[str, object]) -> dict[str, object]:
+def _known_fields(spec: object) -> dict[str, object]:
+    if not isinstance(spec, dict):
+        raise ValidationError([FieldError("spec", "must be an object")])
     unknown = sorted(set(spec) - RECORD_FIELDS)
     if unknown:
         raise ValidationError([FieldError("spec", f"unknown field: {', '.join(unknown)}")])
