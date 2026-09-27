@@ -7,8 +7,8 @@ writes use the same validation and persistence boundary.
 An operational failure during writing or projection aborts the batch. Store restores
 touched canonical memory files to their pre-batch contents and projects the restored
 truth before propagating the error, provided storage remains available for recovery.
-Repeated changes to one file preserve its earliest snapshot. Missing referenced
-memories retain their existing error category and also abort the batch.
+Repeated changes to one file preserve its earliest snapshot. Missing predecessors
+retain their existing error category and also abort the batch.
 
 Archived evidence remains append-only, including evidence appended by an aborted
 batch. Recovery covers canonical files and their projections; interrupted processes
