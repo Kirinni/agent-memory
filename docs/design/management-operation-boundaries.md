@@ -31,6 +31,11 @@ review and per-kind caps for unattended
 merge, split, supersede, and deletion decisions. File scope, links, provenance, locks,
 validation, and projection remain Core responsibilities.
 
+Automatic directory clustering, spelling-based group merging, and empty-group cleanup
+apply only to schema group fields whose configured source is menu. System-sourced
+groups preserve their values and paths, maintaining project ownership and event date
+boundaries. Custom schemas and field-source overrides follow the same rule.
+
 T0 duplicate supersession requires identical parsed abstract and body, type, all semantic
 fields, effective validity start, author, relationships and provenance. Text comparison
 preserves Unicode, case, order, repetition, punctuation and internal whitespace. Names,

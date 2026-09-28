@@ -4,6 +4,7 @@ import shutil
 import subprocess
 
 import pytest
+from agent_memory.core import schema
 from agent_memory.core.errors import NotFoundError
 from agent_memory.core.manage import (
     ACTION_CLUSTERED,
@@ -209,12 +210,15 @@ def test_similar_but_not_identical_entries_become_a_proposal_not_an_edit(seeded)
     assert seeded.find("ryan-prefers-concise-answers") is not None
 
 
-def test_a_crowded_directory_is_clustered_into_a_new_group_without_a_ruling(store):
+@pytest.mark.parametrize("type_name", ["preference", "entity", "experience", "reference"])
+def test_a_crowded_menu_directory_is_clustered_without_a_ruling(store, type_name):
     for index in range(store.config.manage.cluster_min_files):
         store.record(
             abstract=f"Deploy pipeline note number {index} about the release rollout",
-            type="procedure",
+            type=type_name,
             name=f"deploy-note-{index}",
+            body=f"Release rollout step {index}.",
+            provenance=[f"The operator recorded release rollout step {index}."],
         )
     before = {record.name: (record.body, record.provenance) for record in store.records()}
     report = Manage(store).sleep()
@@ -222,9 +226,120 @@ def test_a_crowded_directory_is_clustered_into_a_new_group_without_a_ruling(stor
     assert {action.target for action in moved} == set(before)
     parents = {record.path.parent for record in store.records()}
     assert len(parents) == 1
-    assert parents != {store.layout.type_dir("procedure") / store.config.storage.default_project}
+    assert parents != {store.layout.type_dir(type_name) / store.config.storage.default_group}
     assert {r.name: (r.body, r.provenance) for r in store.records()} == before
     assert Recall(store).recall("release rollout")
+
+
+@pytest.mark.parametrize("type_name", ["fact", "decision", "procedure", "event"])
+def test_a_crowded_system_directory_keeps_its_fields_paths_and_scope(store, type_name):
+    group_field = store.schemas.require(type_name).group
+    group = "2026-01" if group_field == "date" else "payments"
+    for index in range(store.config.manage.cluster_min_files):
+        store.record(
+            type=type_name,
+            fields={group_field: group, "subject": f"cache-rule-{index}"},
+            abstract=f"Cache latency rule number {index}",
+            body=f"The cache latency limit is {index + 1} seconds.",
+        )
+    before = {record.name: (record.fields, record.path) for record in store.records()}
+    scope = f"{type_name}/{group}"
+    expected = {hit.name for hit in Recall(store).recall("cache latency", scope=scope, log=False)}
+    assert expected == set(before)
+
+    for _ in range(2):
+        report = Manage(store).sleep()
+        assert ACTION_CLUSTERED not in _kinds(report)
+        assert {r.name: (r.fields, r.path) for r in store.records()} == before
+        recalled = Recall(store).recall("cache latency", scope=scope, log=False)
+        assert {hit.name for hit in recalled} == expected
+
+
+def test_spelling_similar_system_groups_remain_separate(store):
+    for name, project, abstract in (
+        ("cache-rule", "payment", "Cache latency limit is one second"),
+        ("queue-rule", "payments", "Queue drain deadline is thirty seconds"),
+    ):
+        store.record(type="fact", name=name, fields={"project": project}, abstract=abstract)
+    before = {record.name: (record.fields, record.path) for record in store.records()}
+
+    report = Manage(store).sleep()
+
+    assert ACTION_GROUP_MERGED not in _kinds(report)
+    assert {r.name: (r.fields, r.path) for r in store.records()} == before
+    assert store.layout.groups_of("fact") == {"payment", "payments"}
+
+
+@pytest.mark.parametrize(
+    "type_name,group_field", [("preference", "topic"), ("tenant-note", "tenant")]
+)
+@pytest.mark.parametrize("operation", ["cluster", "merge"])
+def test_system_group_protection_uses_configured_sources(store, type_name, group_field, operation):
+    store.config.storage.field_sources[group_field] = schema.SOURCE_SYSTEM
+    if type_name == "tenant-note":
+        definition = schema.MemorySchema(
+            type_name, "A tenant note", (group_field, "subject"), group=group_field
+        )
+        store.schemas.path_for(type_name).write_text(schema.render(definition), encoding="utf-8")
+    groups = (
+        ["account"] * store.config.manage.cluster_min_files
+        if operation == "cluster" else ["account", "accounts"]
+    )
+    for index, group in enumerate(groups):
+        store.record(
+            type=type_name,
+            fields={group_field: group, "subject": f"cache-note-{index}"},
+            abstract=f"Cache latency rule number {index}",
+        )
+    before = {record.name: (record.fields, record.path) for record in store.records()}
+
+    report = Manage(store).sleep()
+
+    assert not {ACTION_CLUSTERED, ACTION_GROUP_MERGED} & _kinds(report)
+    assert {r.name: (r.fields, r.path) for r in store.records()} == before
+
+
+@pytest.mark.parametrize("operation", ["cluster", "merge"])
+@pytest.mark.parametrize("type_name,group_field", [("fact", "project"), ("label-note", "label")])
+def test_a_field_configured_as_menu_can_be_regrouped(store, operation, type_name, group_field):
+    store.config.storage.field_sources[group_field] = schema.SOURCE_MENU
+    if type_name == "label-note":
+        definition = schema.MemorySchema(
+            type_name, "A labeled note", (group_field, "subject"), group=group_field
+        )
+        store.schemas.path_for(type_name).write_text(schema.render(definition), encoding="utf-8")
+    groups = (
+        ["account"] * store.config.manage.cluster_min_files
+        if operation == "cluster" else ["account", "accounts"]
+    )
+    for index, group in enumerate(groups):
+        store.record(
+            type=type_name,
+            fields={group_field: group, "subject": f"cache-note-{index}"},
+            abstract=f"Cache latency rule number {index}",
+            create_group=True,
+        )
+    before = {record.name: record.path for record in store.records()}
+
+    report = Manage(store).sleep()
+
+    expected_action = ACTION_CLUSTERED if operation == "cluster" else ACTION_GROUP_MERGED
+    assert expected_action in _kinds(report)
+    assert set(before) == {record.name for record in store.records()}
+    assert any(record.path != before[record.name] for record in store.records())
+
+
+def test_menu_cleanup_preserves_empty_system_directories(store):
+    system_folder = store.layout.type_dir("fact") / "payments"
+    system_folder.mkdir(parents=True)
+    menu_folder = store.layout.type_dir("reference") / "unused"
+    menu_folder.mkdir(parents=True)
+    _flat_topic(store, store.config.manage.cluster_min_files, "Cache latency note {index}")
+
+    assert ACTION_CLUSTERED in _kinds(Manage(store).sleep())
+
+    assert system_folder.is_dir()
+    assert not menu_folder.exists()
 
 
 def test_group_directories_that_differ_only_in_spelling_are_merged(store):

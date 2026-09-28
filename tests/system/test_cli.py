@@ -336,6 +336,77 @@ def test_a_sleep_with_nobody_reasoning_decides_nothing(cli):
     assert not cli("sleep", "--reason", "none")["decisions"]
 
 
+def _system_group_records(cli):
+    return {
+        record.name: (
+            record.path.relative_to(cli.root),
+            record.fields,
+            record.valid_from,
+            record.body,
+            record.provenance,
+            record.is_active(),
+        )
+        for record in Store(cli.root).records(include_invalid=True)
+    }
+
+
+@pytest.mark.parametrize(
+    ("memory_type", "group_field", "group"),
+    [("fact", "project", "payments"), ("event", "date", "2020-09")],
+)
+def test_rule_only_sleep_preserves_crowded_system_groups(cli, memory_type, group_field, group):
+    names = set()
+    for index in range(Store(cli.root).config.manage.cluster_min_files):
+        name = f"latency-{index}"
+        names.add(name)
+        cli(
+            "record",
+            "--type", memory_type,
+            "--name", name,
+            "--field", f"{group_field}={group}",
+            "--field", f"subject={name}",
+            "--abstract", f"Cache latency budget for shard {index}",
+            "--body", f"Shard {index} reserves its own cache latency budget.",
+            "--valid-from", "2020-09-15",
+            "--provenance", f"The operator measured cache latency for shard {index}.",
+        )
+    scope = f"{memory_type}/{group}"
+    before = _system_group_records(cli)
+    assert set(before) == names
+    assert {hit["name"] for hit in cli("recall", "latency", "--scope", scope)["hits"]} == names
+
+    for command in (("sleep", "--reason", "none"), ("rebuild",), ("sleep", "--reason", "none")):
+        cli(*command)
+        assert _system_group_records(cli) == before
+        assert {
+            hit["name"] for hit in cli("recall", "latency", "--scope", scope)["hits"]
+        } == names
+
+
+def test_rule_only_sleep_keeps_similarly_spelled_projects_separate(cli):
+    expected = {"payment": "individual-payment", "payments": "aggregate-payments"}
+    for project, name in expected.items():
+        cli(
+            "record",
+            "--type", "fact",
+            "--name", name,
+            "--field", f"project={project}",
+            "--field", f"subject={name}",
+            "--abstract", f"Retention policy for {name}",
+            "--body", f"The {project} service owns this retention policy.",
+        )
+    before = _system_group_records(cli)
+
+    for command in (("sleep", "--reason", "none"), ("rebuild",), ("sleep", "--reason", "none")):
+        cli(*command)
+        assert _system_group_records(cli) == before
+        for project, name in expected.items():
+            assert {
+                hit["name"]
+                for hit in cli("recall", "retention", "--scope", f"fact/{project}")["hits"]
+            } == {name}
+
+
 @pytest.mark.parametrize(
     "contents",
     [

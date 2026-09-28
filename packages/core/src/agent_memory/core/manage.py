@@ -26,6 +26,7 @@ from .database import Database
 from .errors import FieldError, MemoryStoreError, NotFoundError, ValidationError
 from .ledger import VERDICT_ACCEPTED, VERDICT_REJECTED, Decision, DecisionLedger
 from .record import DATE_FIELDS, MemoryRecord
+from .schema import SOURCE_MENU, source_of
 from .sessions import parse_pointer
 from .store import Store
 
@@ -434,28 +435,33 @@ class Manage:
             actions.append(Action(ACTION_DUPLICATE_MERGED, record.name, original.name))
         return actions
 
+    def _menu_group_fields(self) -> dict[str, str]:
+        return {
+            schema.type: schema.group
+            for schema in self._store.schemas.all()
+            if schema.group and source_of(schema.group, self._config) == SOURCE_MENU
+        }
+
     def _merge_near_duplicate_groups(self) -> list[Action]:
         """Two group directories that differ only in spelling are one topic split in two."""
         actions: list[Action] = []
         layout = self._store.layout
-        for schema in self._store.schemas.all():
-            if not schema.group:
-                continue
+        for type_name, group_field in self._menu_group_fields().items():
             by_key: dict[str, list[str]] = {}
-            for group in sorted(layout.groups_of(schema.type)):
+            for group in sorted(layout.groups_of(type_name)):
                 by_key.setdefault(_group_key(group), []).append(group)
             for variants in by_key.values():
                 if len(variants) < len(("one", "other")):
                     continue
                 keeper = max(
-                    variants, key=lambda group: (self._group_size(schema.type, group), group)
+                    variants, key=lambda group: (self._group_size(type_name, group), group)
                 )
                 for group in variants:
                     if group == keeper:
                         continue
                     for record in self._store.records():
-                        if record.type == schema.type and record.fields.get(schema.group) == group:
-                            self._move(record, schema.group, keeper)
+                        if record.type == type_name and record.fields.get(group_field) == group:
+                            self._move(record, group_field, keeper)
                             actions.append(
                                 Action(ACTION_GROUP_MERGED, record.name, f"{group} -> {keeper}")
                             )
@@ -466,8 +472,11 @@ class Manage:
         """A directory holding many files that share vocabulary is a topic without a name yet;
         naming it is a directory operation, so it happens without a ruling."""
         actions: list[Action] = []
+        group_fields = self._menu_group_fields()
         by_parent: dict[pathlib.Path, list[MemoryRecord]] = {}
         for record in records:
+            if record.type not in group_fields:
+                continue
             if record.is_active() and record.path is not None:
                 by_parent.setdefault(record.path.parent, []).append(record)
         for _, flat in sorted(by_parent.items()):
@@ -487,13 +496,10 @@ class Manage:
                 label = "-".join(sorted(shared))[: self._config.storage.slug_max_length]
                 movable = []
                 for name in sorted(grouped):
-                    schema = self._store.schema_of(known[name])
-                    group_field = schema.group if schema is not None else None
-                    if not schema or not group_field:
-                        continue
+                    group_field = group_fields[known[name].type]
                     if known[name].fields.get(group_field, "") == label:
                         continue
-                    if label in self._store.layout.groups_of(schema.type):
+                    if label in self._store.layout.groups_of(known[name].type):
                         continue
                     movable.append((known[name], group_field))
                 for record, group_field in movable:
@@ -504,9 +510,9 @@ class Manage:
         return actions
 
     def _prune_empty_groups(self) -> None:
-        for schema in self._store.schemas.all():
-            for group in self._store.layout.groups_of(schema.type):
-                folder = self._store.layout.type_dir(schema.type) / group
+        for type_name in self._menu_group_fields():
+            for group in self._store.layout.groups_of(type_name):
+                folder = self._store.layout.type_dir(type_name) / group
                 if not any(folder.iterdir()):
                     folder.rmdir()
 
