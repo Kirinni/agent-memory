@@ -172,6 +172,105 @@ def test_a_batch_of_memories_is_written_in_one_call(cli, tmp_path):
     assert len(names) == 2
 
 
+@pytest.mark.parametrize(
+    ("invalid", "field"),
+    [
+        (
+            {"type": "fact", "abstract": "Batch recovery invalid weight", "weight": "oops"},
+            "weight",
+        ),
+        (
+            {
+                "type": "event",
+                "abstract": "Batch recovery invalid date",
+                "valid_from": "not-a-date",
+            },
+            "valid_from",
+        ),
+        (None, "spec"),
+        ([], "spec"),
+        ("not an object", "spec"),
+        (42, "spec"),
+    ],
+    ids=["weight", "event-date", "null", "array", "string", "number"],
+)
+def test_batch_input_rejections_keep_valid_siblings_projected(cli, tmp_path, invalid, field):
+    names = ["batch-first", "batch-last"]
+    valid = [
+        {"type": "fact", "name": name, "abstract": f"Batch recovery accepted {name}"}
+        for name in names
+    ]
+    batch = tmp_path / "mixed-batch.jsonl"
+    batch.write_text(
+        "\n".join(json.dumps(spec) for spec in [valid[0], invalid, valid[1]]),
+        encoding="utf-8",
+    )
+
+    payload = cli("record", "--batch", str(batch))
+
+    assert [record["name"] for record in payload["written"]] == names
+    assert [item["index"] for item in payload["rejected"]] == [1]
+    assert {error["field"] for error in payload["rejected"][0]["errors"]} == {field}
+    if field == "spec":
+        assert "object" in payload["rejected"][0]["errors"][0]["reason"]
+    store = Store(cli.root)
+    assert {record.name for record in store.records()} == set(names)
+    assert {hit["name"] for hit in cli("recall", "batch recovery")["hits"]} == set(names)
+    projected = store.layout.memory_index.read_bytes()
+    assert all(name.encode() in projected for name in names)
+    assert b"invalid" not in projected
+
+    cli("rebuild")
+
+    assert {hit["name"] for hit in cli("recall", "batch recovery")["hits"]} == set(names)
+    assert store.layout.memory_index.read_bytes() == projected
+
+
+def test_batch_missing_predecessor_rolls_back_accepted_siblings(cli, tmp_path):
+    cli(
+        "record",
+        "--type",
+        "fact",
+        "--name",
+        "batch-original",
+        "--abstract",
+        "Batch recovery original description",
+    )
+    store = Store(cli.root)
+    original = {path: path.read_bytes() for path in store.layout.truth_files()}
+    projected = store.layout.memory_index.read_bytes()
+    names = {hit["name"] for hit in cli("recall", "batch recovery")["hits"]}
+    batch = tmp_path / "aborted-batch.jsonl"
+    specs = [
+        {
+            "type": "fact",
+            "name": "batch-original",
+            "abstract": "Batch recovery modified description",
+        },
+        {"type": "fact", "name": "batch-created", "abstract": "Batch recovery newly created"},
+        {
+            "type": "fact",
+            "name": "batch-successor",
+            "abstract": "Batch recovery missing predecessor",
+            "supersedes": "batch-missing",
+        },
+    ]
+    batch.write_text("\n".join(json.dumps(spec) for spec in specs), encoding="utf-8")
+
+    payload = cli("record", "--batch", str(batch), expect=EXIT_ERROR)
+
+    assert payload["code"] == "not_found"
+    assert "batch-missing" in payload["message"]
+    assert {path: path.read_bytes() for path in store.layout.truth_files()} == original
+    assert store.layout.memory_index.read_bytes() == projected
+    assert {hit["name"] for hit in cli("recall", "batch recovery")["hits"]} == names
+
+    cli("rebuild")
+
+    assert {hit["name"] for hit in cli("recall", "batch recovery")["hits"]} == names
+    assert store.layout.memory_index.read_bytes() == projected
+
+
 def test_record_without_a_batch_still_demands_its_fields(cli):
     payload = cli("record", "--abstract", "only an abstract", expect=EXIT_INVALID)
     assert payload["code"] == "validation_error"
@@ -306,6 +405,75 @@ def test_rule_only_sleep_keeps_similarly_spelled_projects_separate(cli):
                 hit["name"]
                 for hit in cli("recall", "retention", "--scope", f"fact/{project}")["hits"]
             } == {name}
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        (
+            ("缓存保存商品价格", "缓存按分钟失效。 Retention."),
+            ("订单必须校验库存", "订单提交前检查库存。 Retention."),
+        ),
+        (
+            ("Alice approves Bob", "Retention."),
+            ("Bob approves Alice", "Retention."),
+        ),
+    ],
+    ids=["chinese", "word-order"],
+)
+def test_rule_only_sleep_preserves_distinct_memories_and_projections(cli, contents):
+    names = {"distinct-a", "distinct-b"}
+    for name, (abstract, body) in zip(sorted(names), contents, strict=True):
+        cli(
+            "record", "--type", "fact", "--name", name,
+            "--abstract", abstract, "--body", body,
+            "--field", "project=dedup", "--field", "subject=retention",
+            "--valid-from", "2000-01-01",
+        )
+
+    report = cli("sleep", "--reason", "none")
+
+    assert not report["decisions"]
+    assert not any(action["kind"] == "duplicate-merged" for action in report["actions"])
+    assert {record.name for record in Store(cli.root).records()} == names
+    assert {hit["name"] for hit in cli("recall", "retention")["hits"]} == names
+    memory_index = (cli.root / "MEMORY.md").read_text(encoding="utf-8")
+    assert all(f"[{name}]" in memory_index for name in names)
+
+
+def test_rule_only_sleep_supersedes_exact_copies_and_retains_their_history(cli):
+    names = {"exact-copy-a", "exact-copy-b"}
+    for name in sorted(names):
+        cli(
+            "--agent", "dedup-test", "record", "--type", "fact", "--name", name,
+            "--abstract", "Retention requires signed receipts",
+            "--body", "Keep the signed receipts for later review.",
+            "--field", "project=dedup", "--field", "subject=retention",
+            "--valid-from", "2000-01-01",
+        )
+
+    report = cli("sleep", "--reason", "none")
+
+    assert [action for action in report["actions"] if action["kind"] == "duplicate-merged"] == [
+        {"kind": "duplicate-merged", "target": "exact-copy-b", "detail": "exact-copy-a"}
+    ]
+    records = {record.name: record for record in Store(cli.root).records(include_invalid=True)}
+    assert set(records) == names
+    assert all(record.path.is_file() for record in records.values())
+    assert records["exact-copy-a"].is_active()
+    assert not records["exact-copy-b"].is_active()
+    assert records["exact-copy-b"].superseded_by == "exact-copy-a"
+    assert {hit["name"] for hit in cli("recall", "retention")["hits"]} == {"exact-copy-a"}
+    assert {
+        hit["name"] for hit in cli("recall", "retention", "--as-of", "2001-01-01")["hits"]
+    } == names
+    memory_index = (cli.root / "MEMORY.md").read_text(encoding="utf-8")
+    assert "[exact-copy-a]" in memory_index
+    assert "[exact-copy-b]" not in memory_index
+    assert not any(
+        action["kind"] == "duplicate-merged"
+        for action in cli("sleep", "--reason", "none")["actions"]
+    )
 
 
 def test_a_plain_sleep_asks_the_library_executor(cli, monkeypatch):
