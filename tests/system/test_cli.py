@@ -172,6 +172,105 @@ def test_a_batch_of_memories_is_written_in_one_call(cli, tmp_path):
     assert len(names) == 2
 
 
+@pytest.mark.parametrize(
+    ("invalid", "field"),
+    [
+        (
+            {"type": "fact", "abstract": "Batch recovery invalid weight", "weight": "oops"},
+            "weight",
+        ),
+        (
+            {
+                "type": "event",
+                "abstract": "Batch recovery invalid date",
+                "valid_from": "not-a-date",
+            },
+            "valid_from",
+        ),
+        (None, "spec"),
+        ([], "spec"),
+        ("not an object", "spec"),
+        (42, "spec"),
+    ],
+    ids=["weight", "event-date", "null", "array", "string", "number"],
+)
+def test_batch_input_rejections_keep_valid_siblings_projected(cli, tmp_path, invalid, field):
+    names = ["batch-first", "batch-last"]
+    valid = [
+        {"type": "fact", "name": name, "abstract": f"Batch recovery accepted {name}"}
+        for name in names
+    ]
+    batch = tmp_path / "mixed-batch.jsonl"
+    batch.write_text(
+        "\n".join(json.dumps(spec) for spec in [valid[0], invalid, valid[1]]),
+        encoding="utf-8",
+    )
+
+    payload = cli("record", "--batch", str(batch))
+
+    assert [record["name"] for record in payload["written"]] == names
+    assert [item["index"] for item in payload["rejected"]] == [1]
+    assert {error["field"] for error in payload["rejected"][0]["errors"]} == {field}
+    if field == "spec":
+        assert "object" in payload["rejected"][0]["errors"][0]["reason"]
+    store = Store(cli.root)
+    assert {record.name for record in store.records()} == set(names)
+    assert {hit["name"] for hit in cli("recall", "batch recovery")["hits"]} == set(names)
+    projected = store.layout.memory_index.read_bytes()
+    assert all(name.encode() in projected for name in names)
+    assert b"invalid" not in projected
+
+    cli("rebuild")
+
+    assert {hit["name"] for hit in cli("recall", "batch recovery")["hits"]} == set(names)
+    assert store.layout.memory_index.read_bytes() == projected
+
+
+def test_batch_missing_predecessor_rolls_back_accepted_siblings(cli, tmp_path):
+    cli(
+        "record",
+        "--type",
+        "fact",
+        "--name",
+        "batch-original",
+        "--abstract",
+        "Batch recovery original description",
+    )
+    store = Store(cli.root)
+    original = {path: path.read_bytes() for path in store.layout.truth_files()}
+    projected = store.layout.memory_index.read_bytes()
+    names = {hit["name"] for hit in cli("recall", "batch recovery")["hits"]}
+    batch = tmp_path / "aborted-batch.jsonl"
+    specs = [
+        {
+            "type": "fact",
+            "name": "batch-original",
+            "abstract": "Batch recovery modified description",
+        },
+        {"type": "fact", "name": "batch-created", "abstract": "Batch recovery newly created"},
+        {
+            "type": "fact",
+            "name": "batch-successor",
+            "abstract": "Batch recovery missing predecessor",
+            "supersedes": "batch-missing",
+        },
+    ]
+    batch.write_text("\n".join(json.dumps(spec) for spec in specs), encoding="utf-8")
+
+    payload = cli("record", "--batch", str(batch), expect=EXIT_ERROR)
+
+    assert payload["code"] == "not_found"
+    assert "batch-missing" in payload["message"]
+    assert {path: path.read_bytes() for path in store.layout.truth_files()} == original
+    assert store.layout.memory_index.read_bytes() == projected
+    assert {hit["name"] for hit in cli("recall", "batch recovery")["hits"]} == names
+
+    cli("rebuild")
+
+    assert {hit["name"] for hit in cli("recall", "batch recovery")["hits"]} == names
+    assert store.layout.memory_index.read_bytes() == projected
+
+
 def test_record_without_a_batch_still_demands_its_fields(cli):
     payload = cli("record", "--abstract", "only an abstract", expect=EXIT_INVALID)
     assert payload["code"] == "validation_error"
