@@ -30,3 +30,14 @@
   negotiation rounds, one cold process each); measure again once the executor loop lands.
 - Verify the Codex dialect end to end, including the one-time hook trust review; it is
   covered by unit tests only.
+
+## Muse Code follow-ups
+
+- Run the isolated Muse shell, lifecycle hook, and stdio MCP sandbox preflight on an installed,
+  authenticated Muse build, then record the observed compatibility result.
+- Run Muse-to-Muse, Muse-to-Codex, and Codex-to-Muse portability smoke before the full four-host
+  matrix.
+- Map `MUSE_SESSION_ID` into shared MCP source context only if provenance can accept it without a
+  Muse-specific Store field.
+- Validate the isolated root-session fixture against an exported log from the supported Muse
+  version before treating raw-log fallback as release-ready.

@@ -12,7 +12,11 @@ CODEX_CONVERSATION = ("response_item", "message")
 CODEX_ROLES = ("user", "assistant")
 
 
-def items(path: pathlib.Path) -> list[str]:
+def items(path: pathlib.Path, host: str = "") -> list[str]:
+    if host == "muse-code":
+        from .muse_session import items as muse_items
+
+        return muse_items(path)
     if not path.exists():
         return []
     found: list[str] = []

@@ -23,7 +23,7 @@ from agent_memory.core.config import EXECUTOR_ENV_VAR, STORE_ENV_VAR
 from agent_memory.core.store import Store
 
 from . import capture as capture_module
-from . import moments, transcript
+from . import moments, muse_session, transcript
 
 EXIT_OK = 0
 LOG_FILENAME = "hooks.log"
@@ -33,6 +33,7 @@ KEY_EVENT_CLAUDE = "hook_event_name"
 KEY_EVENT_GENERIC = "event"
 KEY_HOST = "host"
 KEY_ITEMS = "items"
+KEY_MUSE_DATA_HOME = "muse_data_home"
 CLAUDE_OUTPUT_KEY = "hookSpecificOutput"
 CLAUDE_CONTEXT_KEY = "additionalContext"
 CLAUDE_EVENT_OUTPUT_KEY = "hookEventName"
@@ -42,6 +43,8 @@ DISTILL_SKIPPED = "skipped"
 SESSION_FLAG = "--session"
 REASON_HOST_FLAG = "--reason-host"
 HOST_FLAG = "--host"
+STORE_FLAG = "--store"
+MUSE_DATA_HOME_FLAG = "--muse-data-home"
 EXECUTOR_BINARY = "mem"
 PRINTED_KEYS = (CLAUDE_OUTPUT_KEY, CLAUDE_CONTEXT_KEY)
 
@@ -60,10 +63,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         parser = argparse.ArgumentParser(prog="mem-hook")
         parser.add_argument(HOST_FLAG, default=moments.HOST_CLAUDE_CODE)
-        host = parser.parse_known_args(argv)[0].host
-        event = json.loads(sys.stdin.read() or "{}")
-        event.setdefault(KEY_HOST, host)
-        store = Store(event.get("store"), agent=str(event.get("agent") or "hook"))
+        parser.add_argument(STORE_FLAG, default="")
+        parser.add_argument(MUSE_DATA_HOME_FLAG, default="")
+        args = parser.parse_args(argv or ())
+        event = normalize_event(json.loads(sys.stdin.read() or "{}"), args.host)
+        if args.store:
+            event["store"] = args.store
+        if args.muse_data_home:
+            event[KEY_MUSE_DATA_HOME] = args.muse_data_home
+        store_value = event.get("store")
+        store = Store(
+            str(store_value) if store_value else None,
+            agent=str(event.get("agent") or "hook"),
+        )
         _arm(store.config.write.hook_timeout_seconds)
         response = handle(store, event)
         if any(key in response for key in PRINTED_KEYS):
@@ -93,6 +105,13 @@ def _inject(store: Store, host: str) -> dict[str, object]:
     if not context:
         return {}
     if host in (moments.HOST_CLAUDE_CODE, moments.HOST_CODEX):
+        return {
+            CLAUDE_OUTPUT_KEY: {
+                CLAUDE_EVENT_OUTPUT_KEY: "SessionStart",
+                CLAUDE_CONTEXT_KEY: context,
+            }
+        }
+    if host == moments.HOST_MUSE_CODE:
         return {
             CLAUDE_OUTPUT_KEY: {
                 CLAUDE_EVENT_OUTPUT_KEY: "SessionStart",
@@ -158,8 +177,35 @@ def _items(event: dict[str, object]) -> list[str]:
     supplied = event.get(KEY_ITEMS)
     if isinstance(supplied, list):
         return [str(item) for item in supplied]
+    host = str(event.get(KEY_HOST) or "")
     path = event.get(KEY_TRANSCRIPT)
-    return transcript.items(pathlib.Path(str(path))) if path else []
+    if host == moments.HOST_MUSE_CODE and not path:
+        data_home = event.get(KEY_MUSE_DATA_HOME)
+        path = muse_session.path_for(
+            str(event.get(KEY_SESSION) or ""),
+            data_home=pathlib.Path(str(data_home)) if data_home else None,
+        )
+    found = (
+        transcript.items(pathlib.Path(str(path)), host=host)
+        if path
+        else []
+    )
+    if host == moments.HOST_MUSE_CODE and found:
+        final = str(event.get("last_assistant_message") or "").strip()
+        rendered = f"assistant: {final}" if final else ""
+        if rendered and rendered not in found:
+            found.append(rendered)
+    return found
+
+
+def normalize_event(event: object, host: str = "") -> dict[str, object]:
+    """Attach adapter identity while retaining fields used by the common hook model."""
+    if not isinstance(event, dict):
+        raise TypeError("hook payload must be a JSON object")
+    normalized = dict(event)
+    if host:
+        normalized[KEY_HOST] = host
+    return normalized
 
 
 def _arm(seconds: float) -> None:
@@ -185,5 +231,9 @@ def _log(store: Store | None, message: str) -> None:
         return
 
 
+def cli() -> int:
+    return main(sys.argv[1:])
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(cli())
