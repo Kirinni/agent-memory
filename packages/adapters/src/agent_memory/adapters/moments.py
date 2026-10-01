@@ -1,4 +1,4 @@
-"""Two universal moments, three host dialects. The dialect table is the whole adapter."""
+"""Three universal moments and their host event dialects."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ MOMENT_EVICT = "evict"
 
 HOST_CLAUDE_CODE = "claude-code"
 HOST_CODEX = "codex"
+HOST_MUSE_CODE = "muse-code"
 HOST_GENERIC = "generic"
 
 DIALECTS: dict[str, dict[str, str]] = {
@@ -20,6 +21,12 @@ DIALECTS: dict[str, dict[str, str]] = {
     HOST_CODEX: {
         "SessionStart": MOMENT_INJECT,
         "Stop": MOMENT_PAUSE,
+        "PreCompact": MOMENT_EVICT,
+    },
+    HOST_MUSE_CODE: {
+        "SessionStart": MOMENT_INJECT,
+        "Stop": MOMENT_PAUSE,
+        "SessionEnd": MOMENT_PAUSE,
         "PreCompact": MOMENT_EVICT,
     },
     HOST_GENERIC: {
