@@ -39,6 +39,16 @@ def _error(run: subprocess.CompletedProcess) -> str:
     return (run.stderr.strip() or run.stdout.strip())[-400:]
 
 
+def _stage_auth(auth_path: pathlib.Path, config_home: pathlib.Path) -> pathlib.Path:
+    """Muse 1.4 reads auth from XDG config, so stage only that file into the clean home."""
+    if not auth_path.is_file():
+        return auth_path
+    staged = config_home / "muse" / "auth.json"
+    shutil.copyfile(auth_path, staged)
+    staged.chmod(0o600)
+    return staged
+
+
 def _hook_trace(data_home: pathlib.Path) -> list[dict[str, object]]:
     found = []
     for path in data_home.glob("muse/sessions/*/*/*/*/session.jsonl"):
@@ -86,6 +96,7 @@ def main() -> int:
         config_home.joinpath("muse").mkdir(parents=True)
         data_home.mkdir()
         clean_home.mkdir()
+        staged_auth = _stage_auth(auth_path, config_home)
         store = Store(store_root, agent="muse-preflight")
         store.init()
         store.record(abstract=SENTINEL, body=SENTINEL, type="fact", name="probe-seed")
@@ -116,7 +127,7 @@ def main() -> int:
             "HOME": str(clean_home),
             "XDG_CONFIG_HOME": str(config_home),
             "XDG_DATA_HOME": str(data_home),
-            "MUSE_AUTH_PATH": str(auth_path),
+            "MUSE_AUTH_PATH": str(staged_auth),
             "MUSE_NO_AUTO_UPDATE": "1",
             "AGENT_MEMORY_STORE": str(store_root),
         }

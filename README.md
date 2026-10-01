@@ -6,7 +6,7 @@
 
 ![](https://img.shields.io/badge/version-0.1.0-369eff?labelColor=black&style=flat-square)
 ![](https://img.shields.io/badge/python-3.12+-ffcb47?labelColor=black&style=flat-square)
-![](https://img.shields.io/badge/hosts-Claude%20Code%2C%20Codex%20CLI-ff80eb?labelColor=black&style=flat-square)
+![](https://img.shields.io/badge/hosts-Claude%20Code%2C%20Codex%20CLI%2C%20Muse%20Code-ff80eb?labelColor=black&style=flat-square)
 ![](https://img.shields.io/badge/dependencies-zero%20API%20keys-c4f042?labelColor=black&style=flat-square)
 
 </div>
@@ -16,7 +16,8 @@
 An agent that closes its session forgets everything it learned in it. agent-memory is the
 runtime that fixes that, for any agent — not only coding ones. Markdown files in one store are
 the single source of truth, the SQLite index beside them is a cache you can delete at any time,
-and Claude Code, Codex CLI, and anything else that can run a shell command share that store.
+and Claude Code, Codex CLI, Muse Code, and anything else that can run a shell command share
+that store.
 
 Retrieval is local and ranked, and it answers with paths rather than pasted text — the agent
 opens each hit only as deep as the task needs. Writes do not wait for the agent to remember to
