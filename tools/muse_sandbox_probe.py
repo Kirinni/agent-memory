@@ -14,6 +14,7 @@ from agent_memory.core.store import Store
 SENTINEL = "muse-sandbox-probe-7f31"
 TIMEOUT_SECONDS = 240
 AUTH_MARKERS = ("missing meta credentials", "muse login", "model api onboarding")
+MUSE_MCP_RECORD_TOOL = "mcp__agent_memory__memory_record"
 
 
 def _run(
@@ -37,6 +38,13 @@ def _blocked_by_auth(*runs: subprocess.CompletedProcess) -> bool:
 
 def _error(run: subprocess.CompletedProcess) -> str:
     return (run.stderr.strip() or run.stdout.strip())[-400:]
+
+
+def _mcp_prompt() -> str:
+    return (
+        f"Call the {MUSE_MCP_RECORD_TOOL} MCP tool exactly once with type fact, "
+        f"abstract {SENTINEL}-mcp, and body {SENTINEL}-mcp."
+    )
 
 
 def _stage_auth(auth_path: pathlib.Path, config_home: pathlib.Path) -> pathlib.Path:
@@ -162,10 +170,7 @@ def main() -> int:
         }
         settings_path.write_text(json.dumps(settings), encoding="utf-8")
         before = len(store.records())
-        mcp_prompt = (
-            "Call the memory_record MCP tool exactly once with type fact, "
-            f"abstract {SENTINEL}-mcp, and body {SENTINEL}-mcp."
-        )
+        mcp_prompt = _mcp_prompt()
         mcp = _run(
             [str(muse), "exec", "--json", "--workspace", str(workspace), mcp_prompt],
             environment,
