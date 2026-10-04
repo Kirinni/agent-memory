@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 
 from .config import Config
 from .record import MemoryRecord
@@ -44,7 +45,49 @@ def outline(body: str, config: Config) -> list[OutlineEntry]:
                 anchor=slugify(title, config.storage.slug_max_length),
             )
         )
+    return entries or _fallback_outline(body, config)
+
+
+_BULLET = re.compile(r"^(?:[-*+]|\d+[.)])\s+(.*)$")
+
+
+def _fallback_outline(body: str, config: Config) -> list[OutlineEntry]:
+    """Heading-less notes still get a middle rung: lead bullets, else paragraph leads."""
+    limit = max(0, config.index.outline_fallback_entries)
+    if limit == 0:
+        return []
+    titles: list[str] = []
+    for line in body.splitlines():
+        match = _BULLET.match(line.strip())
+        if match and match.group(1).strip():
+            titles.append(match.group(1).strip())
+        if len(titles) >= limit:
+            break
+    if not titles:
+        for paragraph in re.split(r"\n\s*\n", body):
+            lead = next((item.strip() for item in paragraph.splitlines() if item.strip()), "")
+            if lead:
+                titles.append(lead)
+            if len(titles) >= limit:
+                break
+    width = config.index.outline_fallback_chars
+    entries: list[OutlineEntry] = []
+    for title in titles[:limit]:
+        clipped = _clip(title, width)
+        entries.append(
+            OutlineEntry(
+                level=1,
+                title=clipped,
+                anchor=slugify(clipped, config.storage.slug_max_length),
+            )
+        )
     return entries
+
+
+def _clip(text: str, width: int) -> str:
+    if width <= 0 or len(text) <= width:
+        return text
+    return text[: width - 1].rstrip() + "…"
 
 
 def chunks(record: MemoryRecord, config: Config) -> list[Chunk]:

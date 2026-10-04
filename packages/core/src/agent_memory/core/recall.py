@@ -91,6 +91,8 @@ class Recall:
         limit = self._config.recall.default_limit if limit is None else limit
         if limit < 1:
             raise ValueError("limit must be positive")
+        if self._config.recall.max_limit > 0:
+            limit = min(limit, self._config.recall.max_limit)
         pool = limit * self._config.recall.candidate_pool_multiplier
         scope_path = (
             "/".join(pathlib.PurePath(scope.strip("/\\")).parts) if scope else None

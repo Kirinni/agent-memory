@@ -107,6 +107,12 @@ def _parser() -> argparse.ArgumentParser:
     opener = subparsers.add_parser("read", help="read one memory")
     opener.add_argument("name")
     opener.add_argument("--level", choices=LEVELS, default=LEVEL_FULL)
+    opener.add_argument(
+        "--max-chars",
+        type=int,
+        default=None,
+        help="cap the returned text; 0 reads everything, default follows the store config",
+    )
     opener.set_defaults(handler=_read)
 
     corrector = subparsers.add_parser("correct", help="update or supersede one memory")
@@ -309,7 +315,7 @@ def _context(store: Store, args: argparse.Namespace) -> dict[str, object]:
 
 
 def _read(store: Store, args: argparse.Namespace) -> dict[str, object]:
-    result = store.read(args.name, level=args.level)
+    result = store.read(args.name, level=args.level, max_chars=args.max_chars)
     return {
         "name": result.record.name,
         "level": result.level,
@@ -317,6 +323,7 @@ def _read(store: Store, args: argparse.Namespace) -> dict[str, object]:
         "path": str(result.record.path),
         "outline": list(result.outline),
         "text": result.text,
+        "truncated": result.truncated,
         **({"provenance": list(result.record.provenance)} if args.json else {}),
     }
 
