@@ -20,18 +20,28 @@ from .store import Store
 from .vector_index import VectorIndex
 
 RRF_K = 60
-RRF_SOURCE_COUNT = 2
 
 
-def fuse_candidates(lexical: list[Candidate], dense: list[Candidate], pool: int) -> list[Candidate]:
-    """Reciprocal-rank fusion by chunk identity, normalized to a stable 0..1 scale."""
+def fuse_candidates(
+    lexical: list[Candidate],
+    dense: list[Candidate],
+    pool: int,
+    *,
+    lexical_weight: float = 1.0,
+    dense_weight: float = 1.0,
+) -> list[Candidate]:
+    """Reciprocal-rank fusion by chunk identity, normalized to a stable 0..1 scale.
+
+    Weights let a store down-rank a leg that is noisy for its data (short Chinese
+    queries on a mixed-language store, for instance) without switching it off.
+    """
 
     def identity(item: Candidate) -> tuple[str, str, str, str]:
         return (item.name, item.kind, item.anchor, item.heading)
 
     scores: dict[tuple[str, str, str, str], float] = {}
     exemplars: dict[tuple[str, str, str, str], Candidate] = {}
-    for candidates in (lexical, dense):
+    for candidates, weight in ((lexical, lexical_weight), (dense, dense_weight)):
         seen: set[tuple[str, str, str, str]] = set()
         for rank, candidate in enumerate(candidates, 1):
             key = identity(candidate)
@@ -39,8 +49,8 @@ def fuse_candidates(lexical: list[Candidate], dense: list[Candidate], pool: int)
                 continue
             seen.add(key)
             exemplars.setdefault(key, candidate)
-            scores[key] = scores.get(key, 0.0) + 1.0 / (RRF_K + rank)
-    maximum = RRF_SOURCE_COUNT / (RRF_K + 1)
+            scores[key] = scores.get(key, 0.0) + weight / (RRF_K + rank)
+    maximum = (lexical_weight + dense_weight) / (RRF_K + 1)
     fused = [
         dataclasses.replace(exemplars[key], relevance=score / maximum)
         for key, score in scores.items()
@@ -109,7 +119,13 @@ class Recall:
                     connection, self._store.embedder, self._config.index.vector_model
                 ).match(query, pool, eligible_names=set(eligible))
                 if dense:
-                    candidates = fuse_candidates(candidates, dense, pool)
+                    candidates = fuse_candidates(
+                        candidates,
+                        dense,
+                        pool,
+                        lexical_weight=self._config.recall.lexical_fusion_weight,
+                        dense_weight=self._config.recall.dense_fusion_weight,
+                    )
             hits = self._rank(candidates, eligible, as_of=as_of)
             hits = hits[:limit]
             if not log:
