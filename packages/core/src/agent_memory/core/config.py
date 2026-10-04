@@ -79,6 +79,8 @@ class RecallConfig:
     max_limit: int = 50
     read_max_chars: int = 0
     candidate_pool_multiplier: int = 10
+    lexical_fusion_weight: float = 1.0
+    dense_fusion_weight: float = 1.0
     recency_half_life_days: float = 180.0
     recency_decay_base: float = 0.5
     recency_floor: float = 0.25

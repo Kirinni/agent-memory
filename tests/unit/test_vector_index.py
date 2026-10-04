@@ -62,6 +62,17 @@ def test_rrf_keeps_both_sources_boosts_overlap_deduplicates_and_is_deterministic
     assert len(fuse_candidates(lexical, dense, 2)) == 2
 
 
+def test_a_lower_dense_weight_lets_the_lexical_leg_outrank_it():
+    lexical = [_candidate("lex-one"), _candidate("shared")]
+    dense = [_candidate("dense-one"), _candidate("shared")]
+
+    balanced = fuse_candidates(lexical, dense, 10)
+    weighted = fuse_candidates(lexical, dense, 10, dense_weight=0.1)
+
+    assert [item.name for item in balanced][:3] == ["shared", "dense-one", "lex-one"]
+    assert [item.name for item in weighted][:3] == ["shared", "lex-one", "dense-one"]
+
+
 def test_vector_only_semantic_candidate_enters_recall(tmp_path, clock):
     plain = Store(tmp_path / "plain", clock=clock)
     plain.init()
