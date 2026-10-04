@@ -73,3 +73,16 @@ def test_render_scalar_boolean_and_null():
 def test_split_document_with_no_closing_delimiter_returns_none_header():
     header, body = frontmatter.split_document("---\nname: test\nno closing marker\n")
     assert header is None
+
+
+def test_double_quoted_values_round_trip_embedded_quotes():
+    fields = {"abstract": 'MERGED_FAMILIES["device-light"]: 骨架=色温页', "note": 'C:\\tmp\\"x'}
+    parsed, _ = _round_trip(fields, "body")
+    assert parsed["abstract"] == 'MERGED_FAMILIES["device-light"]: 骨架=色温页'
+    assert parsed["note"] == 'C:\\tmp\\"x'
+
+
+def test_legacy_escaped_quotes_are_decoded_on_read():
+    text = '---\nabstract: "he said \\"hi\\" to me"\n---\nbody\n'
+    fields, _ = frontmatter.parse(text)
+    assert fields["abstract"] == 'he said "hi" to me'
