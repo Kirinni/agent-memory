@@ -15,10 +15,9 @@ import datetime as dt
 import hashlib
 import json
 import pathlib
-import re
 import subprocess
 
-from . import reasoning, timestamp
+from . import reasoning, timestamp, tokenizer
 from . import record as record_module
 from .access_log import KIND_READ, AccessLog
 from .clock import Clock
@@ -48,9 +47,14 @@ REPORT_SUFFIX = ".md"
 MERGED_SUFFIX = "-merged"
 SECTION_PREFIX = "## "
 GIT = "git"
-_WORDS = re.compile(r"[0-9a-z]+")
 _STOPWORDS = frozenset(
     {"the", "a", "an", "and", "or", "of", "to", "is", "are", "for", "in", "on", "with", "that"}
+) | frozenset(
+    {
+        "的", "了", "是", "在", "和", "与", "及", "或", "被", "把", "对", "为", "以", "之",
+        "其", "而", "并", "就", "都", "也", "还", "不", "有", "无", "中", "上", "下",
+        "这", "那", "个", "我", "你", "他", "它", "们", "到", "从", "会", "能", "要",
+    }
 )
 _PLURAL = "s"
 
@@ -706,7 +710,7 @@ class Manage:
 
 
 def _tokens(text: str) -> set[str]:
-    return {word for word in _WORDS.findall(text.lower()) if word not in _STOPWORDS}
+    return set(tokenizer.word_tokens(text)) - _STOPWORDS
 
 
 def _similarity(left: MemoryRecord, right: MemoryRecord) -> float:
@@ -735,7 +739,7 @@ def _duplicate_key(record: MemoryRecord) -> str:
 
 
 def _group_key(group: str) -> str:
-    key = "".join(_WORDS.findall(group.lower()))
+    key = tokenizer.compact_key(group)
     return key[: -len(_PLURAL)] if key.endswith(_PLURAL) and len(key) > len(_PLURAL) else key
 
 
