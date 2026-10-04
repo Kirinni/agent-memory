@@ -51,8 +51,21 @@ def serve(store: Store, stream_in: TextIO, stream_out: TextIO) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     store = Store(agent=SERVER_NAME)
+    _warm_reranker(store)
     serve(store, sys.stdin, sys.stdout)
     return 0
+
+
+def _warm_reranker(store: Store) -> None:
+    """Load the reranker before the first query: a cold cache must not cost one query 40s."""
+    if not store.config.recall.rerank_enabled:
+        return
+    from agent_memory.core import reranker
+
+    try:
+        reranker.load(store.config.recall.rerank_model)
+    except reranker.RerankerUnavailable as error:
+        print(f"rerank stage unavailable: {error}", file=sys.stderr, flush=True)
 
 
 def _route(store: Store, method: str, params: object) -> dict[str, object]:
