@@ -8,18 +8,21 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import math
 import pathlib
 import sqlite3
 
-from . import observation, timestamp
+from . import observation, reranker, timestamp
 from .access_log import KIND_RECALL, AccessEntry, AccessLog
 from .config import Config
 from .database import SURFACE_ACTIVE, SURFACE_HISTORY, Database
+from .record import MemoryRecord
 from .search_index import LINK_SEPARATOR, Candidate, SearchIndex
 from .store import Store
 from .vector_index import VectorIndex
 
 RRF_K = 60
+RERANK_CAP_FRACTION = 0.999
 
 
 def fuse_candidates(
@@ -57,6 +60,14 @@ def fuse_candidates(
     ]
     fused.sort(key=lambda item: (-item.relevance, identity(item)))
     return fused[:pool]
+
+
+def _sigmoid(value: float) -> float:
+    """Rerank logits live on an unbounded scale; relevance lives on 0..1."""
+    if value >= 0:
+        return 1.0 / (1.0 + math.exp(-value))
+    factor = math.exp(value)
+    return factor / (1.0 + factor)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -128,6 +139,8 @@ class Recall:
                         lexical_weight=self._config.recall.lexical_fusion_weight,
                         dense_weight=self._config.recall.dense_fusion_weight,
                     )
+            if self._config.recall.rerank_enabled and len(candidates) > 1:
+                candidates = self._rerank(query, candidates, eligible)
             hits = self._rank(candidates, eligible, as_of=as_of)
             hits = hits[:limit]
             if not log:
@@ -149,6 +162,68 @@ class Recall:
             effective_limit=limit, hits=[hit.as_dict() for hit in hits],
         )
         return hits
+
+    def _rerank(
+        self, query: str, candidates: list[Candidate], eligible: dict[str, sqlite3.Row]
+    ) -> list[Candidate]:
+        """The best candidates get a cross-encoder score; everything else is capped below them.
+
+        Only the top `rerank_candidates` records are scored: scoring the long tail costs
+        latency without changing the order a human would recognise.
+        """
+        settings = self._config.recall
+        chosen: list[Candidate] = []
+        seen: set[str] = set()
+        ordered = sorted(
+            candidates,
+            key=lambda item: (-item.relevance, item.name, item.kind, item.anchor, item.heading),
+        )
+        for candidate in ordered:
+            if candidate.name in seen or candidate.name not in eligible:
+                continue
+            seen.add(candidate.name)
+            chosen.append(candidate)
+            if len(chosen) >= max(1, settings.rerank_candidates):
+                break
+        try:
+            scored = reranker.scores(
+                settings.rerank_model,
+                query,
+                [self._rerank_text(candidate, eligible) for candidate in chosen],
+            )
+        except reranker.RerankerUnavailable as error:
+            observation.emit("rerank_unavailable", model=settings.rerank_model, error=str(error))
+            return candidates
+        if len(scored) != len(chosen):
+            observation.emit(
+                "rerank_mismatch",
+                model=settings.rerank_model,
+                expected=len(chosen),
+                got=len(scored),
+            )
+            return candidates
+        boosted = {
+            item.name: _sigmoid(score) for item, score in zip(chosen, scored, strict=True)
+        }
+        cap = min(boosted.values()) * RERANK_CAP_FRACTION
+        return [
+            dataclasses.replace(
+                item,
+                relevance=boosted[item.name] if item.name in boosted else min(item.relevance, cap),
+            )
+            for item in candidates
+        ]
+
+    def _rerank_text(self, candidate: Candidate, eligible: dict[str, sqlite3.Row]) -> str:
+        row = eligible[candidate.name]
+        body = ""
+        try:
+            text = (self._store.root / str(row["path"])).read_text(encoding="utf-8")
+            body = MemoryRecord.from_text(text).body
+        except Exception:
+            # An unreadable or malformed file still has its indexed abstract to be scored on.
+            body = ""
+        return f"{str(row['abstract'])}\n{body[: self._config.recall.rerank_body_chars]}"
 
     def _eligible(
         self,

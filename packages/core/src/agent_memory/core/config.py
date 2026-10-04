@@ -81,6 +81,10 @@ class RecallConfig:
     candidate_pool_multiplier: int = 10
     lexical_fusion_weight: float = 1.0
     dense_fusion_weight: float = 1.0
+    rerank_enabled: bool = False
+    rerank_model: str = "BAAI/bge-reranker-base"
+    rerank_candidates: int = 10
+    rerank_body_chars: int = 600
     recency_half_life_days: float = 180.0
     recency_decay_base: float = 0.5
     recency_floor: float = 0.25
