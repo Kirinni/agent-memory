@@ -1,7 +1,9 @@
 """M2 — the projection: incremental, rebuildable, and never authoritative."""
 
+from agent_memory.core import memory_md
 from agent_memory.core.database import Database
 from agent_memory.core.recall import Recall
+from agent_memory.core.record import MemoryRecord
 from agent_memory.core.search_index import SearchIndex
 
 
@@ -86,3 +88,19 @@ def test_memory_md_budget_is_a_hard_ceiling(store):
         )
     text = store.layout.memory_index.read_text(encoding="utf-8")
     assert len(text.encode("utf-8")) <= store.config.memory_md.budget_bytes
+
+
+def test_equal_weight_entries_lead_with_the_newest_update(config):
+    def entry(name, updated):
+        return MemoryRecord(
+            name=name, abstract=name, type="fact", author="t", created=updated, updated=updated
+        )
+
+    text = memory_md.render(
+        [
+            entry("stale-entry", "2026-01-01T00:00:00Z"),
+            entry("fresh-entry", "2026-06-01T00:00:00Z"),
+        ],
+        config,
+    )
+    assert text.index("fresh-entry") < text.index("stale-entry")

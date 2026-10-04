@@ -53,7 +53,11 @@ def write(layout: StoreLayout, records: list[MemoryRecord]) -> str:
 
 
 def _sort_by_weight(records: list[MemoryRecord]) -> None:
-    records.sort(key=lambda record: (-record.weight, record.updated, record.name))
+    """Weight first, then freshest. Equal-weight records lead with the most recently
+    updated so that an index over budget sheds its stalest lines, not its newest —
+    new and freshly corrected memories stay visible until they earn or lose weight."""
+    records.sort(key=lambda record: record.name)
+    records.sort(key=lambda record: record.updated, reverse=True)
     records.sort(key=lambda record: record.weight, reverse=True)
 
 
