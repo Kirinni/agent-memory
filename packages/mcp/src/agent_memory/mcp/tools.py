@@ -23,101 +23,230 @@ SCHEMAS: dict[str, dict[str, object]] = {
     TOOL_RECALL: {
         "type": "object",
         "properties": {
-            "query": {"type": "string"},
-            "scope": {"type": "string"},
-            "as_of": {"type": "string"},
-            "limit": {"type": "integer"},
+            "query": {
+                "type": "string",
+                "description": "Free text; Chinese and English both work (segmented + reranked).",
+            },
+            "scope": {
+                "type": "string",
+                "description": "Directory prefix to search within, e.g. reference/lvgl-simulator.",
+            },
+            "as_of": {
+                "type": "string",
+                "description": "ISO 8601 day or instant; returns memories valid at that time.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum hits (store caps it; default 8, max 50).",
+            },
         },
         "required": ["query"],
     },
     TOOL_INDEX: {
         "type": "object",
-        "properties": {"max_chars": {"type": "integer"}, "offset": {"type": "integer"}},
+        "properties": {
+            "max_chars": {
+                "type": "integer",
+                "description": (
+                    "Characters to return; default is the configured prefix (~8 KB). "
+                    "Pass a large value for the whole index."
+                ),
+            },
+            "offset": {
+                "type": "integer",
+                "description": (
+                    "Character offset to continue from; use the previous response's next_offset."
+                ),
+            },
+        },
     },
     TOOL_READ: {
         "type": "object",
         "properties": {
-            "name": {"type": "string"},
-            "level": {"type": "string", "enum": list(LEVELS)},
-            "max_chars": {"type": "integer"},
+            "name": {"type": "string", "description": "The memory's slug, as listed in the index."},
+            "level": {
+                "type": "string",
+                "enum": list(LEVELS),
+                "description": "outline = headings and lead lines; full = the whole body.",
+            },
+            "max_chars": {
+                "type": "integer",
+                "description": (
+                    "Cap the returned text; 0 reads everything; default follows the store's "
+                    "read budget."
+                ),
+            },
         },
         "required": ["name"],
     },
     TOOL_RECORD: {
         "type": "object",
         "properties": {
-            "abstract": {"type": "string"},
-            "type": {"type": "string"},
-            "fields": {"type": "object", "additionalProperties": {"type": "string"}},
-            "body": {"type": "string"},
-            "name": {"type": "string"},
-            "create_group": {"type": "boolean"},
-            "pinned": {"type": "boolean"},
-            "links": {"type": "array", "items": {"type": "string"}},
-            "provenance": {"type": "array", "items": {"type": "string"}},
-            "supersedes": {"type": "string"},
+            "abstract": {
+                "type": "string",
+                "description": (
+                    "One self-contained line (<=240 chars): this is what the index and search "
+                    "show."
+                ),
+            },
+            "type": {
+                "type": "string",
+                "description": (
+                    "An existing type, e.g. decision, experience, reference, preference, fact."
+                ),
+            },
+            "fields": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "description": (
+                    "The type's schema fields (e.g. project, topic); they decide placement."
+                ),
+            },
+            "body": {
+                "type": "string",
+                "description": "Markdown body: the durable detail behind the abstract.",
+            },
+            "name": {
+                "type": "string",
+                "description": "Kebab-case slug; omit to derive one from the abstract.",
+            },
+            "create_group": {
+                "type": "boolean",
+                "description": "Create the group directory when it does not exist yet.",
+            },
+            "pinned": {
+                "type": "boolean",
+                "description": (
+                    "Keep it in the index's Pinned section, exempt from the budget "
+                    "(for must-know rules)."
+                ),
+            },
+            "links": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Names of related active memories.",
+            },
+            "provenance": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Citations: message excerpts or stored pointers.",
+            },
+            "supersedes": {
+                "type": "string",
+                "description": "Name of an active memory this one replaces; its validity ends.",
+            },
         },
         "required": ["abstract", "type"],
     },
     TOOL_CORRECT: {
         "type": "object",
         "properties": {
-            "name": {"type": "string"},
-            "abstract": {"type": "string"},
-            "body": {"type": "string"},
-            "supersede_with": {"type": "string"},
-            "pinned": {"type": "boolean"},
+            "name": {"type": "string", "description": "The memory to update."},
+            "abstract": {
+                "type": "string",
+                "description": "Replacement abstract (one line, <=240 chars).",
+            },
+            "body": {"type": "string", "description": "Replacement body."},
+            "supersede_with": {
+                "type": "string",
+                "description": "Name of an existing active memory that replaces this one.",
+            },
+            "pinned": {"type": "boolean", "description": "Pin or unpin it in the root index."},
             "links": {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Replace all links; empty list removes all links",
             },
-            "provenance": {"type": "array", "items": {"type": "string"}},
+            "provenance": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Additional citations to append.",
+            },
         },
         "required": ["name"],
     },
     TOOL_SUPERSEDE: {
         "type": "object",
-        "properties": {"old": {"type": "string"}, "new": {"type": "string"}},
+        "properties": {
+            "old": {"type": "string", "description": "The memory whose validity ends."},
+            "new": {
+                "type": "string",
+                "description": "The existing active memory that replaces it.",
+            },
+        },
         "required": ["old", "new"],
     },
     TOOL_DELETE: {
-        "type": "object", "properties": {"name": {"type": "string"}},
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "The memory to end; its file and history are retained.",
+            }
+        },
         "required": ["name"],
     },
     TOOL_TRACE: {
         "type": "object",
-        "properties": {"name": {"type": "string"}, "pointer": {"type": "string"}},
+        "properties": {
+            "name": {"type": "string", "description": "The memory whose cited messages to read."},
+            "pointer": {
+                "type": "string",
+                "description": "Read one stored pointer instead of every citation.",
+            },
+        },
         "required": ["name"],
     },
     TOOL_MERGE: {
         "type": "object",
         "properties": {
-            "names": {"type": "array", "items": {"type": "string"}},
-            "name": {"type": "string"},
-            "abstract": {"type": "string"},
-            "body": {"type": "string"},
+            "names": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Two or more active memories to combine.",
+            },
+            "name": {
+                "type": "string",
+                "description": "Slug for the merged memory; omit to derive.",
+            },
+            "abstract": {
+                "type": "string",
+                "description": "Abstract of the merged memory (one line).",
+            },
+            "body": {"type": "string", "description": "Body of the merged memory."},
         },
         "required": ["names", "abstract", "body"],
     },
     TOOL_FEEDBACK: {
         "type": "object",
         "properties": {
-            "name": {"type": "string"},
-            "direction": {"type": "string", "enum": ["boost", "penalize"]},
+            "name": {"type": "string", "description": "The memory to weigh."},
+            "direction": {
+                "type": "string",
+                "enum": ["boost", "penalize"],
+                "description": "boost when it proved useful; penalize when it misled.",
+            },
         },
         "required": ["name", "direction"],
     },
 }
 
 DESCRIPTIONS = {
-    TOOL_RECALL: "Search the memory store and return an L0 list of candidates.",
-    TOOL_INDEX: (
-        "Read the root index: pinned first, then by weight (newest first); page with offset."
+    TOOL_RECALL: (
+        "Search the store and return candidate summaries. Use for a specific question; call "
+        "memory_index first when you do not know what the store holds."
     ),
-    TOOL_READ: "Read one memory at a chosen level of detail.",
-    TOOL_RECORD: "Write one memory into the store.",
-    TOOL_CORRECT: "Update a memory in place, or supersede it with a newer one.",
+    TOOL_INDEX: (
+        "Read the root index: pinned first, then by weight, newest first. Default returns the "
+        "configured prefix (~8 KB) and reports listed/total; max_chars reads further, and "
+        "offset (with the previous next_offset) pages through the rest."
+    ),
+    TOOL_READ: "Read one memory at a chosen level of detail (outline or full).",
+    TOOL_RECORD: (
+        "Write one memory. The abstract is what the index and search show: keep it one "
+        "self-contained line."
+    ),
+    TOOL_CORRECT: "Update a memory in place, pin or unpin it, or supersede it with a newer one.",
     TOOL_SUPERSEDE: "End an old memory's validity in favor of an existing active memory.",
     TOOL_DELETE: "End a named memory's validity while retaining historical evidence.",
     TOOL_TRACE: "Read only the archived messages cited by a named memory.",

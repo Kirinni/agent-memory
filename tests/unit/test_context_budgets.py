@@ -180,3 +180,20 @@ def test_mcp_index_pages_with_offset(store):
 
 def test_mcp_index_rejects_a_negative_offset(store):
     assert "error" in _call(store, tools.TOOL_INDEX, {"offset": -1})
+
+
+def test_every_tool_parameter_is_documented():
+    for name, schema in tools.SCHEMAS.items():
+        properties = schema["properties"]
+        assert properties, f"{name} declares no properties"
+        for parameter, rules in properties.items():
+            assert rules.get("description"), f"{name}.{parameter} has no description"
+
+
+def test_tool_metadata_stays_ascii():
+    # mcp-proxy relays tools/list through a text layer that replaces non-ASCII bytes, so
+    # anything beyond ASCII reaches clients as U+FFFD. Keep the metadata ASCII.
+    for name, schema in tools.SCHEMAS.items():
+        assert tools.DESCRIPTIONS[name].isascii(), f"{name} description is not ASCII"
+        for parameter, rules in schema["properties"].items():
+            assert rules["description"].isascii(), f"{name}.{parameter} description is not ASCII"
