@@ -88,6 +88,11 @@ def _parser() -> argparse.ArgumentParser:
         help="write many memories in one call: one JSON object per line",
     )
     writer.add_argument("--supersedes", default=None)
+    writer.add_argument(
+        "--pinned",
+        action="store_true",
+        help="keep this memory at the top of MEMORY.md, exempt from the index budget",
+    )
     writer.set_defaults(handler=_record)
 
     reader = subparsers.add_parser("recall", help="retrieve an L0 list")
@@ -132,6 +137,12 @@ def _parser() -> argparse.ArgumentParser:
         "--clear-links", action="store_true", help="replace the link list with an empty list"
     )
     corrector.add_argument("--provenance", action="append", default=[])
+    corrector.add_argument(
+        "--pinned",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="pin or unpin the memory in the root index (--pinned / --no-pinned)",
+    )
     corrector.set_defaults(handler=_correct)
 
     replacer = subparsers.add_parser(
@@ -266,6 +277,7 @@ def _record(store: Store, args: argparse.Namespace) -> dict[str, object]:
         valid_from=args.valid_from,
         provenance=args.provenance,
         supersedes=args.supersedes,
+        pinned=args.pinned or None,
     )
     return {
         "name": written.name,
@@ -324,6 +336,7 @@ def _read(store: Store, args: argparse.Namespace) -> dict[str, object]:
         "outline": list(result.outline),
         "text": result.text,
         "truncated": result.truncated,
+        "pinned": result.record.pinned,
         **({"provenance": list(result.record.provenance)} if args.json else {}),
     }
 
@@ -337,6 +350,7 @@ def _correct(store: Store, args: argparse.Namespace) -> dict[str, object]:
         supersede_with=args.supersede_with,
         links=[] if args.clear_links else args.link,
         provenance=args.provenance,
+        pinned=args.pinned,
     )
     return {
         "name": corrected.name,

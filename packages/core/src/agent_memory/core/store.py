@@ -53,6 +53,7 @@ RECORD_FIELDS = frozenset(
         "valid_from",
         "provenance",
         "weight",
+        "pinned",
         "supersedes",
         "create_group",
     }
@@ -221,6 +222,9 @@ class Store:
             parsed_weight = float(str(weight)) if weight is not None else self.config.weight.initial
         except ValueError as error:
             raise ValidationError([FieldError("weight", "must be a number")]) from error
+        pinned = spec.get("pinned")
+        if pinned is None:
+            pinned = existing.pinned if existing else False
         candidate = MemoryRecord(
             name=placed.name,
             abstract=str(spec.get("abstract") or "").strip(),
@@ -231,6 +235,7 @@ class Store:
             body=str(spec.get("body") or ""),
             valid_from=valid_from or (existing.valid_from if existing else now),
             weight=parsed_weight,
+            pinned=bool(pinned),
             links=[str(link) for link in _as_sequence(spec.get("links"))],
             provenance=list(existing.provenance) if existing else [],
             fields=dict(placed.fields),
@@ -356,6 +361,7 @@ class Store:
         links: list[str] | None = None,
         valid_from: str | None = None,
         provenance: list[str] | None = None,
+        pinned: bool | None = None,
     ) -> MemoryRecord:
         with store_lock(self.layout):
             current = self.find(name)
@@ -383,6 +389,8 @@ class Store:
                 current.links = list(links)
             if valid_from is not None:
                 current.valid_from = valid_from
+            if pinned is not None:
+                current.pinned = pinned
             current.updated = now
             return self._write_locked(
                 current, replace_links=links is not None, provenance=provenance
@@ -432,6 +440,7 @@ class Store:
                     "body": body,
                     "links": links,
                     "weight": max(source.weight for source in active),
+                    "pinned": any(source.pinned for source in active),
                     "create_group": True,
                 })
                 snapshots.update(changed)

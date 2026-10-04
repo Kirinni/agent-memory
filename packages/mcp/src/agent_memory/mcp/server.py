@@ -18,9 +18,10 @@ SERVER_NAME = "agent-memory"
 SERVER_VERSION = "0.1.0"
 SERVER_INSTRUCTIONS = (
     "agent-memory is the long-term memory store. Call memory_index for an overview of "
-    "every active memory (one line each, ordered by weight), memory_recall to search, "
-    "memory_read for detail; write with memory_record, memory_correct, memory_supersede, "
-    "and memory_merge."
+    "every active memory (one line each, ordered by weight; pinned entries lead), "
+    "memory_recall to search, memory_read for detail; write with memory_record, "
+    "memory_correct, memory_supersede, and memory_merge. Mark must-know rules with "
+    "pinned: true."
 )
 JSONRPC = "2.0"
 METHOD_INITIALIZE = "initialize"

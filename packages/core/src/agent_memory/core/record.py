@@ -24,6 +24,7 @@ FIELD_ORDER = (
     "invalid_at",
     "superseded_by",
     "weight",
+    "pinned",
     "author",
     "links",
     "provenance",
@@ -46,6 +47,7 @@ class MemoryRecord:
     invalid_at: str | None = None
     superseded_by: str | None = None
     weight: float = 1.0
+    pinned: bool = False
     links: list[str] = dataclasses.field(default_factory=list)
     provenance: list[str] = dataclasses.field(default_factory=list)
     fields: dict[str, str] = dataclasses.field(default_factory=dict)
@@ -63,10 +65,16 @@ class MemoryRecord:
             "invalid_at": self.invalid_at,
             "superseded_by": self.superseded_by,
             "weight": float(self.weight),
-            "author": self.author,
-            "links": list(self.links),
-            "provenance": list(self.provenance),
         }
+        if self.pinned:
+            core["pinned"] = True
+        core.update(
+            {
+                "author": self.author,
+                "links": list(self.links),
+                "provenance": list(self.provenance),
+            }
+        )
         for key, value in self.fields.items():
             if key not in CORE_FIELDS:
                 core[key] = value
@@ -106,6 +114,7 @@ class MemoryRecord:
             ),
             superseded_by=_optional_str(raw.get("superseded_by")),
             weight=_as_float(raw.get("weight")),
+            pinned=bool(raw.get("pinned") is True),
             links=_as_list(raw.get("links")),
             provenance=_as_list(raw.get("provenance")),
             fields=extra,

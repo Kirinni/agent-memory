@@ -61,6 +61,7 @@ class MemoryMdConfig:
     budget_bytes: int = 8192
     max_lines: int = 120
     header: str = "# MEMORY.md"
+    pinned_header: str = "## Pinned"
 
 
 @dataclasses.dataclass
