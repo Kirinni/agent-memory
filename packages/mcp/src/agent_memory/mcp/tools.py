@@ -52,6 +52,7 @@ SCHEMAS: dict[str, dict[str, object]] = {
             "body": {"type": "string"},
             "name": {"type": "string"},
             "create_group": {"type": "boolean"},
+            "pinned": {"type": "boolean"},
             "links": {"type": "array", "items": {"type": "string"}},
             "provenance": {"type": "array", "items": {"type": "string"}},
             "supersedes": {"type": "string"},
@@ -65,6 +66,7 @@ SCHEMAS: dict[str, dict[str, object]] = {
             "abstract": {"type": "string"},
             "body": {"type": "string"},
             "supersede_with": {"type": "string"},
+            "pinned": {"type": "boolean"},
             "links": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -153,6 +155,8 @@ def _require(tool: str, arguments: dict[str, object]) -> None:
         or not all(isinstance(item, str) for item in arguments["provenance"])
     ):
         raise ValidationError([FieldError("provenance", "must be an array of references")])
+    if "pinned" in arguments and not isinstance(arguments["pinned"], bool):
+        raise ValidationError([FieldError("pinned", "must be a boolean")])
     schema = SCHEMAS[tool]
     required = schema.get("required")
     missing = [
@@ -202,6 +206,7 @@ def _read(store: Store, arguments: dict[str, object]) -> dict[str, object]:
         "outline": list(result.outline),
         "text": result.text,
         "truncated": result.truncated,
+        "pinned": result.record.pinned,
         "provenance": list(result.record.provenance),
     }
 
@@ -222,6 +227,7 @@ def _record(store: Store, arguments: dict[str, object]) -> dict[str, object]:
         body=str(arguments.get("body") or ""),
         name=_optional(arguments, "name"),
         create_group=bool(arguments.get("create_group")),
+        pinned=_bool_argument(arguments, "pinned"),
         links=_string_list(arguments.get("links")),
         provenance=_string_list(arguments.get("provenance")),
         supersedes=_optional(arguments, "supersedes"),
@@ -237,6 +243,7 @@ def _correct(store: Store, arguments: dict[str, object]) -> dict[str, object]:
         supersede_with=_optional(arguments, "supersede_with"),
         links=_string_list(arguments["links"]) if "links" in arguments else None,
         provenance=_string_list(arguments["provenance"]) if "provenance" in arguments else None,
+        pinned=_bool_argument(arguments, "pinned"),
     )
     return {
         "name": corrected.name,
@@ -289,6 +296,11 @@ def _int_argument(arguments: dict[str, object], key: str) -> int | None:
         return int(str(value))
     except ValueError as error:
         raise ValidationError([FieldError(key, "must be an integer")]) from error
+
+
+def _bool_argument(arguments: dict[str, object], key: str) -> bool | None:
+    value = arguments.get(key)
+    return value if isinstance(value, bool) else None
 
 
 def _string_map(value: object) -> dict[str, str]:
