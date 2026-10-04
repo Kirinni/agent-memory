@@ -73,7 +73,11 @@ def _parse_scalar(value: str) -> object:
             return []
         return [_parse_scalar(item) for item in _split_items(inner)]
     if len(value) > 1 and value[0] == value[-1] and value[0] in ("'", '"'):
-        return value[1:-1]
+        inner = value[1:-1]
+        # `render` escapes embedded double quotes; the reader must undo that or a
+        # round-trip keeps the backslashes ("…\"device-light\"…" instead of
+        # …"device-light"…). Single quotes are never produced by `render`.
+        return inner.replace('\\"', '"') if value[0] == '"' else inner
     lowered = value.lower()
     if lowered == _TRUE:
         return True
