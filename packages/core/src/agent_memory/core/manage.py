@@ -24,6 +24,7 @@ from .clock import Clock
 from .database import Database
 from .errors import FieldError, MemoryStoreError, NotFoundError, ValidationError
 from .ledger import VERDICT_ACCEPTED, VERDICT_REJECTED, Decision, DecisionLedger
+from .placement import portable_segment
 from .record import DATE_FIELDS, MemoryRecord
 from .schema import SOURCE_MENU, source_of
 from .sessions import parse_pointer
@@ -474,7 +475,13 @@ class Manage:
 
     def _cluster(self, records: list[MemoryRecord]) -> list[Action]:
         """A directory holding many files that share vocabulary is a topic without a name yet;
-        naming it is a directory operation, so it happens without a ruling."""
+        naming it is a directory operation, so it happens without a ruling.
+
+        A store that names its groups itself (one directory per project, say) turns this off
+        rather than watch Manage rename settled directories after every import.
+        """
+        if not self._config.manage.cluster_enabled:
+            return []
         actions: list[Action] = []
         group_fields = self._menu_group_fields()
         by_parent: dict[pathlib.Path, list[MemoryRecord]] = {}
@@ -498,6 +505,10 @@ class Manage:
                 if len(shared) < self._config.manage.cluster_min_shared_tokens:
                     continue
                 label = "-".join(sorted(shared))[: self._config.storage.slug_max_length]
+                if not portable_segment(label, self._config):
+                    # A label like 记录-空调 cannot name a directory; skipping it beats
+                    # aborting the whole pass on a cluster that could never be placed.
+                    continue
                 movable = []
                 for name in sorted(grouped):
                     group_field = group_fields[known[name].type]
