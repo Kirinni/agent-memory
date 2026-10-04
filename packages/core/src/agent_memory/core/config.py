@@ -52,6 +52,8 @@ class IndexConfig:
     bm25_body_weight: float = 1.0
     vector_enabled: bool = False
     vector_model: str = "BAAI/bge-small-en-v1.5"
+    outline_fallback_entries: int = 12
+    outline_fallback_chars: int = 80
 
 
 @dataclasses.dataclass
@@ -74,6 +76,8 @@ class WeightConfig:
 @dataclasses.dataclass
 class RecallConfig:
     default_limit: int = 8
+    max_limit: int = 50
+    read_max_chars: int = 0
     candidate_pool_multiplier: int = 10
     recency_half_life_days: float = 180.0
     recency_decay_base: float = 0.5
@@ -129,6 +133,13 @@ class WriteConfig:
 
 
 @dataclasses.dataclass
+class McpConfig:
+    """Wire-level shape of the MCP responses a client pays for in context."""
+
+    emit_structured_content: bool = True
+
+
+@dataclasses.dataclass
 class ExecutorConfig:
     reasoner: str = REASONER_HOST
     host: str = "claude-code"
@@ -150,6 +161,7 @@ class Config:
     recall: RecallConfig = dataclasses.field(default_factory=RecallConfig)
     manage: ManageConfig = dataclasses.field(default_factory=ManageConfig)
     write: WriteConfig = dataclasses.field(default_factory=WriteConfig)
+    mcp: McpConfig = dataclasses.field(default_factory=McpConfig)
     executor: ExecutorConfig = dataclasses.field(default_factory=ExecutorConfig)
 
     @classmethod

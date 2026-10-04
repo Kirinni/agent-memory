@@ -72,11 +72,13 @@ def _route(store: Store, method: str, params: object) -> dict[str, object]:
         observation.emit("mcp_tool_call", tool=name, arguments=tool_arguments)
         result = tools.dispatch(store, name, tool_arguments)
         observation.emit("mcp_tool_return", tool=name)
-        return {
+        envelope: dict[str, object] = {
             "content": [{"type": "text", "text": json.dumps(result, sort_keys=True)}],
-            "structuredContent": result,
             "isError": False,
         }
+        if store.config.mcp.emit_structured_content:
+            envelope["structuredContent"] = result
+        return envelope
     raise KeyError(method)
 
 

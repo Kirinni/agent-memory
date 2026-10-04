@@ -33,6 +33,7 @@ SCHEMAS: dict[str, dict[str, object]] = {
         "properties": {
             "name": {"type": "string"},
             "level": {"type": "string", "enum": list(LEVELS)},
+            "max_chars": {"type": "integer"},
         },
         "required": ["name"],
     },
@@ -181,7 +182,11 @@ def _recall(store: Store, arguments: dict[str, object]) -> dict[str, object]:
 
 
 def _read(store: Store, arguments: dict[str, object]) -> dict[str, object]:
-    result = store.read(str(arguments["name"]), level=str(arguments.get("level") or LEVEL_FULL))
+    result = store.read(
+        str(arguments["name"]),
+        level=str(arguments.get("level") or LEVEL_FULL),
+        max_chars=_int_argument(arguments, "max_chars"),
+    )
     return {
         "name": result.record.name,
         "level": result.level,
@@ -189,6 +194,7 @@ def _read(store: Store, arguments: dict[str, object]) -> dict[str, object]:
         "path": str(result.record.path),
         "outline": list(result.outline),
         "text": result.text,
+        "truncated": result.truncated,
         "provenance": list(result.record.provenance),
     }
 
@@ -258,6 +264,16 @@ def _merge(store: Store, arguments: dict[str, object]) -> dict[str, object]:
 def _optional(arguments: dict[str, object], key: str) -> str | None:
     value = arguments.get(key)
     return str(value) if value is not None and str(value) != "" else None
+
+
+def _int_argument(arguments: dict[str, object], key: str) -> int | None:
+    value = arguments.get(key)
+    if value is None:
+        return None
+    try:
+        return int(str(value))
+    except ValueError as error:
+        raise ValidationError([FieldError(key, "must be an integer")]) from error
 
 
 def _string_map(value: object) -> dict[str, str]:

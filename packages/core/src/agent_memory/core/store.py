@@ -35,6 +35,10 @@ LEVEL_OUTLINE = "outline"
 LEVEL_FULL = "full"
 FIRST_SUCCESSOR_ORDINAL = 2
 LEVELS = (LEVEL_ABSTRACT, LEVEL_OUTLINE, LEVEL_FULL)
+TRUNCATION_NOTICE = (
+    "\n\n[truncated: {omitted} of {total} characters omitted by the read budget; "
+    "pass max_chars=0 to read the full text]"
+)
 UNKNOWN_AGENT = "unknown"
 
 RECORD_FIELDS = frozenset(
@@ -86,6 +90,7 @@ class ReadResult:
     level: str
     text: str
     outline: tuple[str, ...]
+    truncated: bool = False
 
 
 class Store:
@@ -549,9 +554,14 @@ class Store:
             )
             return self._write_locked(current)
 
-    def read(self, name: str, level: str = LEVEL_FULL) -> ReadResult:
+    def read(
+        self, name: str, level: str = LEVEL_FULL, max_chars: int | None = None
+    ) -> ReadResult:
         if level not in LEVELS:
             raise ValidationError([FieldError("level", f"must be one of {', '.join(LEVELS)}")])
+        budget = self.config.recall.read_max_chars if max_chars is None else max_chars
+        if budget < 0:
+            raise ValidationError([FieldError("max_chars", "must be zero or positive")])
         current = self.find(name)
         if current is None:
             raise NotFoundError(f"no memory named {name}")
@@ -562,10 +572,17 @@ class Store:
             text = "\n".join(headings)
         else:
             text = current.body
+        truncated = False
+        if budget > 0 and len(text) > budget:
+            total = len(text)
+            text = text[:budget] + TRUNCATION_NOTICE.format(omitted=total - budget, total=total)
+            truncated = True
         stamp = self.clock.now().isoformat()
         self._log_access([AccessEntry(stamp, name, "", KIND_READ, self.agent)])
         observation.emit("read_return", name=name, level=level, text=text, outline=headings)
-        return ReadResult(record=current, level=level, text=text, outline=headings)
+        return ReadResult(
+            record=current, level=level, text=text, outline=headings, truncated=truncated
+        )
 
     def find(self, name: str) -> MemoryRecord | None:
         with self._database.connect() as connection:
