@@ -18,20 +18,41 @@ def payload(store: Store) -> str:
     return slice_text(store)[0]
 
 
-def slice_text(store: Store, max_chars: int | None = None) -> tuple[str, bool]:
-    """MEMORY.md at a chosen size: the configured byte prefix by default, or the first
-    `max_chars` characters; either cut on a line boundary when one is available."""
+def slice_text(
+    store: Store, max_chars: int | None = None, offset: int = 0
+) -> tuple[str, bool, int]:
+    """The root index at a chosen position and size.
+
+    Default (no budget, no offset) is the injection track's configured byte prefix — the
+    same bytes a hooked host receives. An explicit budget or offset switches to character
+    paging: the page starts at the next line boundary at or after `offset` and ends at the
+    last line boundary within the budget (unless one line alone exceeds it). Returns
+    `(text, truncated, next_offset)`; `next_offset` is where the next page starts, 0 when
+    the page is complete.
+    """
     if not store.layout.memory_index.exists():
-        return "", False
+        return "", False, 0
     data = store.layout.memory_index.read_bytes()
-    if max_chars is None:
+    if max_chars is None and offset == 0:
         budget = store.config.recall.injection_budget_bytes
         if len(data) <= budget:
-            return data.decode("utf-8"), False
+            return data.decode("utf-8"), False, 0
         cut = data.rfind(NEWLINE, 0, budget)
-        return data[: cut if cut > 0 else budget].decode("utf-8", errors="ignore"), True
+        keep = cut if cut > 0 else budget
+        text = data[:keep].decode("utf-8", errors="ignore")
+        return text, True, len(text) + 1 if cut > 0 else len(text)
     text = data.decode("utf-8")
-    if len(text) <= max_chars:
-        return text, False
-    cut = text.rfind(NEWLINE_TEXT, 0, max_chars)
-    return text[: cut if cut > 0 else max_chars], True
+    start = max(offset, 0)
+    if start > 0 and text[start - 1] != NEWLINE_TEXT:
+        boundary = text.find(NEWLINE_TEXT, start)
+        start = boundary + 1 if boundary != -1 else len(text)
+    page_chars = max_chars if max_chars is not None else store.config.recall.injection_budget_bytes
+    chunk = text[start : start + page_chars]
+    end = start + len(chunk)
+    if end < len(text):
+        cut = chunk.rfind(NEWLINE_TEXT)
+        if cut > 0:
+            chunk = chunk[: cut + 1]
+            end = start + len(chunk)
+    truncated = end < len(text)
+    return chunk, truncated, end if truncated else 0

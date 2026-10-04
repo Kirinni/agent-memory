@@ -32,7 +32,7 @@ SCHEMAS: dict[str, dict[str, object]] = {
     },
     TOOL_INDEX: {
         "type": "object",
-        "properties": {"max_chars": {"type": "integer"}},
+        "properties": {"max_chars": {"type": "integer"}, "offset": {"type": "integer"}},
     },
     TOOL_READ: {
         "type": "object",
@@ -112,7 +112,9 @@ SCHEMAS: dict[str, dict[str, object]] = {
 
 DESCRIPTIONS = {
     TOOL_RECALL: "Search the memory store and return an L0 list of candidates.",
-    TOOL_INDEX: "Read the root index: one line per active memory, ordered by weight.",
+    TOOL_INDEX: (
+        "Read the root index: pinned first, then by weight (newest first); page with offset."
+    ),
     TOOL_READ: "Read one memory at a chosen level of detail.",
     TOOL_RECORD: "Write one memory into the store.",
     TOOL_CORRECT: "Update a memory in place, or supersede it with a newer one.",
@@ -215,8 +217,20 @@ def _index(store: Store, arguments: dict[str, object]) -> dict[str, object]:
     max_chars = _int_argument(arguments, "max_chars")
     if max_chars is not None and max_chars <= 0:
         raise ValidationError([FieldError("max_chars", "must be a positive integer")])
-    text, truncated = injection.slice_text(store, max_chars)
-    return {"path": str(store.layout.memory_index), "text": text, "truncated": truncated}
+    offset = _int_argument(arguments, "offset") or 0
+    if offset < 0:
+        raise ValidationError([FieldError("offset", "must be zero or a positive integer")])
+    text, truncated, next_offset = injection.slice_text(store, max_chars, offset)
+    payload: dict[str, object] = {
+        "path": str(store.layout.memory_index),
+        "text": text,
+        "truncated": truncated,
+        "listed": sum(1 for line in text.splitlines() if line.startswith("- [")),
+        "total": len(store.records()),
+    }
+    if truncated:
+        payload["next_offset"] = next_offset
+    return payload
 
 
 def _record(store: Store, arguments: dict[str, object]) -> dict[str, object]:

@@ -130,7 +130,8 @@ def test_mcp_index_max_chars_cuts_on_a_line_boundary(store):
     assert payload["truncated"] is True
     assert len(payload["text"]) <= 120
     assert full.startswith(payload["text"])
-    assert full[len(payload["text"])] == "\n"
+    # The page keeps its trailing newline so the next page starts exactly at its end.
+    assert payload["text"].endswith("\n")
 
 
 def test_mcp_index_ignores_the_injection_switch(store):
@@ -143,3 +144,39 @@ def test_mcp_index_ignores_the_injection_switch(store):
 
 def test_mcp_index_rejects_a_non_positive_budget(store):
     assert "error" in _call(store, tools.TOOL_INDEX, {"max_chars": 0})
+
+
+def test_mcp_index_reports_listed_and_total(store):
+    for index in range(5):
+        store.record(abstract=f"index row {index}", type="fact", name=f"index-row-{index}")
+    payload = _index_payload(store)
+    assert payload["total"] == 5
+    assert payload["listed"] == 5
+    assert "next_offset" not in payload
+
+
+def test_mcp_index_reports_a_shortfall_when_the_budget_cuts(store):
+    for index in range(30):
+        store.record(abstract=f"filler {index}", type="fact", name=f"filler-{index}")
+    store.config.recall.injection_budget_bytes = 300
+    payload = _index_payload(store)
+    assert payload["truncated"] is True
+    assert payload["listed"] < payload["total"] == 30
+    assert payload["next_offset"] > 0
+
+
+def test_mcp_index_pages_with_offset(store):
+    for index in range(40):
+        store.record(
+            abstract=f"page probe {index} with enough text to matter", type="fact",
+            name=f"page-{index}",
+        )
+    full = _index_payload(store, {"max_chars": 100000})["text"]
+    first = _index_payload(store, {"max_chars": 400})
+    assert first["truncated"] is True
+    second = _index_payload(store, {"max_chars": 400, "offset": first["next_offset"]})
+    assert full.startswith(first["text"] + second["text"])
+
+
+def test_mcp_index_rejects_a_negative_offset(store):
+    assert "error" in _call(store, tools.TOOL_INDEX, {"offset": -1})
