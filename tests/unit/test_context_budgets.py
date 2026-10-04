@@ -21,6 +21,11 @@ def _call(store, tool, arguments):
     )
 
 
+def _index_payload(store, arguments=None):
+    response = _call(store, tools.TOOL_INDEX, arguments or {})
+    return json.loads(response["result"]["content"][0]["text"])
+
+
 def test_recall_limit_is_clamped_to_the_configured_maximum(store):
     store.config.recall.max_limit = 2
     for index in range(5):
@@ -93,3 +98,48 @@ def test_headingless_notes_get_a_fallback_outline(store):
     result = store.read("outline-probe", level=LEVEL_OUTLINE)
     assert len(result.outline) == 3
     assert result.outline[0].startswith("触发")
+
+
+def test_mcp_index_serves_the_root_index(store):
+    store.record(abstract="indexed note", type="decision", name="indexed-note")
+    payload = _index_payload(store)
+    assert payload["truncated"] is False
+    assert "- [indexed-note](" in payload["text"]
+    assert payload["path"].endswith("MEMORY.md")
+
+
+def test_mcp_index_follows_the_injection_budget(store):
+    for index in range(30):
+        store.record(
+            abstract=f"index filler {index}", type="reference", name=f"index-filler-{index}"
+        )
+    store.config.recall.injection_budget_bytes = 300
+    payload = _index_payload(store)
+    assert payload["truncated"] is True
+    assert len(payload["text"].encode("utf-8")) <= 300
+    assert store.layout.memory_index.read_text(encoding="utf-8").startswith(payload["text"])
+
+
+def test_mcp_index_max_chars_cuts_on_a_line_boundary(store):
+    for index in range(30):
+        store.record(
+            abstract=f"index slice {index}", type="reference", name=f"index-slice-{index}"
+        )
+    full = store.layout.memory_index.read_text(encoding="utf-8")
+    payload = _index_payload(store, {"max_chars": 120})
+    assert payload["truncated"] is True
+    assert len(payload["text"]) <= 120
+    assert full.startswith(payload["text"])
+    assert full[len(payload["text"])] == "\n"
+
+
+def test_mcp_index_ignores_the_injection_switch(store):
+    store.config.recall.injection_enabled = False
+    store.record(abstract="still listed", type="decision", name="still-listed")
+    payload = _index_payload(store)
+    assert payload["truncated"] is False
+    assert "still-listed" in payload["text"]
+
+
+def test_mcp_index_rejects_a_non_positive_budget(store):
+    assert "error" in _call(store, tools.TOOL_INDEX, {"max_chars": 0})

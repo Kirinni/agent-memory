@@ -16,6 +16,12 @@ from . import tools
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "agent-memory"
 SERVER_VERSION = "0.1.0"
+SERVER_INSTRUCTIONS = (
+    "agent-memory is the long-term memory store. Call memory_index for an overview of "
+    "every active memory (one line each, ordered by weight), memory_recall to search, "
+    "memory_read for detail; write with memory_record, memory_correct, memory_supersede, "
+    "and memory_merge."
+)
 JSONRPC = "2.0"
 METHOD_INITIALIZE = "initialize"
 METHOD_LIST = "tools/list"
@@ -75,6 +81,7 @@ def _route(store: Store, method: str, params: object) -> dict[str, object]:
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
             "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+            "instructions": SERVER_INSTRUCTIONS,
         }
     if method == METHOD_LIST:
         return {"tools": tools.catalogue()}

@@ -185,7 +185,7 @@ agent-memory skill, and leaves the rest of the settings alone. SessionStart inje
 SessionEnd distil, PreCompact evicts. Distillation reasons through the same host's CLI in the
 background, on your existing login; point `[executor]` in `config.toml` at a model endpoint
 instead if you would rather not spend it. Codex asks you to trust new hooks once. Agents that speak MCP get the same core calls through `mem-mcp` (`memory_recall`,
-`memory_read`, `memory_trace`, `memory_record`, `memory_correct`, `memory_supersede`,
+`memory_index`, `memory_read`, `memory_trace`, `memory_record`, `memory_correct`, `memory_supersede`,
 `memory_merge`, `memory_delete`, `memory_feedback`). Anything that can run a
 shell command needs neither: the CLI is the universal fallback, and it is the wider surface —
 `context`, `sleep`, and the proposal ledger have no MCP tool yet.
@@ -223,9 +223,9 @@ merge this server into the same settings file and start a new Muse session:
 }
 ```
 
-Run `/mcp` in Muse to verify that `memory_recall`, `memory_read`, `memory_trace`,
-`memory_record`, `memory_correct`, `memory_supersede`, `memory_merge`, `memory_delete`, and
-`memory_feedback` are present. Muse passes `MUSE_SESSION_ID` to stdio servers; agent-memory
+Run `/mcp` in Muse to verify that `memory_recall`, `memory_index`, `memory_read`,
+`memory_trace`, `memory_record`, `memory_correct`, `memory_supersede`, `memory_merge`,
+`memory_delete`, and `memory_feedback` are present. Muse passes `MUSE_SESSION_ID` to stdio servers; agent-memory
 does not yet add that value to provenance. Set `AGENT_MEMORY_STORE` in the MCP server's `env`
 entry when using a non-default store.
 
